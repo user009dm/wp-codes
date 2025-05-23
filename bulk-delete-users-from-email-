@@ -1,4 +1,5 @@
-// Run this from Users Page in Chrome Console, you need permission to delete, first sort your list and users list and show 500 or 1000 entries from customize
+// Run this from Users Page in Chrome Console, you need permission to delete, first sort your list and users list and show 500 or 1000 entries from customize, make sure to refresh the page after running the script so it doesn't use same wpnonce
+
 
 
 (async () => {
