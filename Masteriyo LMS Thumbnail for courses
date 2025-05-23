@@ -1,0 +1,94 @@
+// Add Thumbnail to Course page of Masteriyo LMS
+
+<script>
+(function() {
+    // Overriding fetch to monitor requests
+    const originalFetch = window.fetch;
+    window.fetch = async function(input, init) {
+        const url = typeof input === 'string' ? input : input.url;
+
+        console.log("Intercepted fetch request:");
+        console.log("URL:", url);
+        console.log("Request payload:", init?.body);
+
+        // Initialize variable for parsed body
+        let parsedBody = null;
+
+        // Attempt to parse the body if it is a JSON string
+        if (init?.body) {
+            try {
+                parsedBody = JSON.parse(init.body);
+                console.log("Parsed request body:", parsedBody);
+            } catch (error) {
+                console.log("Could not parse request body, it may not be JSON:", error);
+            }
+        }
+
+        // Check if the request is for course-progress (ignoring query parameters) and contains course_id
+        if (url.includes("masteriyo/v1/course-progress") && parsedBody?.course_id) {
+            console.log("Detected request to 'course-progress' endpoint with course_id:", parsedBody.course_id);
+
+            // Proceed with the original fetch request
+            const response = await originalFetch(input, init);
+            console.log("Received response from 'course-progress' request");
+
+            // Parse the response JSON
+            const data = await response.json();
+            console.log("Parsed course-progress response:", data);
+
+            // Get all the item_ids from items > contents
+            const itemIds = data.items.flatMap(item => item.contents.map(content => content.item_id));
+            console.log("Extracted item IDs from response:", itemIds);
+
+            // Process each item_id to get lesson details and images
+            itemIds.forEach(async (itemId) => {
+                console.log(`Processing item_id: ${itemId}`);
+
+                const lessonUrl = `${window.location.origin}/wp-json/masteriyo/v1/lessons/${itemId}?_locale=user`;
+                console.log(`Fetching lesson details from: ${lessonUrl}`);
+
+                try {
+                    const lessonResponse = await originalFetch(lessonUrl);
+                    console.log(`Received response for lesson ${itemId}`);
+
+                    const lessonData = await lessonResponse.json();
+                    console.log(`Lesson data for item_id ${itemId}:`, lessonData);
+
+                    // Get featured image ID
+                    const featuredImageId = lessonData.featured_image;
+                    console.log(`Featured image ID for item_id ${itemId}: ${featuredImageId}`);
+
+                    if (featuredImageId) {
+                        const mediaUrl = `${window.location.origin}/wp-json/wp/v2/media/${featuredImageId}?_locale=user`;
+                        console.log(`Fetching media details from: ${mediaUrl}`);
+
+                        const mediaResponse = await originalFetch(mediaUrl);
+                        console.log(`Received media response for image ID: ${featuredImageId}`);
+
+                        const mediaData = await mediaResponse.json();
+                        console.log(`Media data for image ID ${featuredImageId}:`, mediaData);
+
+                        // Create and append <img> tag with the featured image
+                        const imgElement = document.createElement('img');
+                        imgElement.src = mediaData.source_url;
+                        imgElement.alt = mediaData.title.rendered;
+                        console.log(`Appending image to page: ${mediaData.source_url}`);
+                        document.body.appendChild(imgElement); // Append the image at the end of the page
+                    } else {
+                        console.log(`No featured image for item_id ${itemId}`);
+                    }
+                } catch (error) {
+                    console.error(`Error fetching lesson or media data for item_id ${itemId}:`, error);
+                }
+            });
+        } else {
+            console.log("Not a 'course-progress' related request, proceeding with normal fetch.");
+        }
+
+        // Proceed with the original fetch function for non-targeted requests
+        return originalFetch(input, init);
+    };
+})();
+
+
+</script>
