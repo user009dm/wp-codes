@@ -1,0 +1,107 @@
+// Run this from Users Page in Chrome Console, you need permission to delete, first sort your list and users list and show 500 or 1000 entries from customize
+
+
+(async () => {
+  // 1. Define your email list (users to delete)
+  const yourEmailList = [
+    "email1@gmailcom",
+    "email2@@outlook.com"
+  ];
+
+  // 2. Define the username of the user who should receive the reassigned content, remove reassign_user from request if don't want to reasign, if this username is not on the same page then just assign the userid directly
+  const reassignToUsername = "AdminUserName"; // 👈 Change this to your actual admin/editor username
+
+  // 3. Create mappings from the Users table on the current page:
+  // email → user ID
+  // email → delete URL (includes unique nonce)
+  const emailToId = {};
+  const emailToDeleteUrl = {};
+  document.querySelectorAll('#the-list tr').forEach(row => {
+    const email = row.querySelector('.email a')?.textContent?.trim();
+    const idMatch = row.id.match(/user-(\d+)/);
+    if (email && idMatch) {
+      emailToId[email] = idMatch[1];
+
+      // Find the delete action link for this user
+      // Usually inside the .username column as an <a> with href containing 'action=delete'
+      const deleteLink = Array.from(row.querySelectorAll('a')).find(a =>
+        a.href.includes('action=delete') && a.href.includes(`user=${idMatch[1]}`)
+      );
+      if (deleteLink) {
+        emailToDeleteUrl[email] = deleteLink.href;
+      }
+    }
+  });
+
+  // 4. Get reassign target user ID by username
+  const getUserIdByUsername = (username) => {
+    const row = Array.from(document.querySelectorAll('#the-list tr')).find(tr =>
+      tr.querySelector('.username strong')?.textContent.trim() === username
+    );
+    return row?.id?.match(/user-(\d+)/)?.[1];
+  };
+// OR Assign the UserID directly "111"
+  const reassignToUserId = getUserIdByUsername(reassignToUsername);
+  if (!reassignToUserId) {
+    console.error(`❌ Could not find user ID for reassign target username: ${reassignToUsername}`);
+    throw new Error("Reassign user not found");
+  }
+
+  // Helper: fetch the delete confirmation page using the unique delete URL per user
+  // and extract the nonce from its HTML
+  async function fetchDeleteNonce(deleteUrl) {
+    const res = await fetch(deleteUrl, { credentials: 'include' });
+    if (!res.ok) throw new Error(`Failed to load delete page at ${deleteUrl}, status: ${res.status}`);
+    const html = await res.text();
+    const match = html.match(/name="_wpnonce" value="([a-z0-9]+)"/i);
+    if (!match) throw new Error(`Nonce not found in delete page at ${deleteUrl}`);
+    return match[1];
+  }
+
+  // 5. Loop through each email to delete users one by one
+  for (const email of yourEmailList) {
+    const userId = emailToId[email];
+    const deleteUrl = emailToDeleteUrl[email];
+    if (!userId || !deleteUrl) {
+      console.warn(`⚠️ User or delete URL not found on page for: ${email}`);
+      continue;
+    }
+
+    try {
+      // Get the delete nonce for this user by fetching the unique delete URL
+      const deleteNonce = await fetchDeleteNonce(deleteUrl);
+
+      // Construct _wp_http_referer (URL encoded)
+      const referer = encodeURIComponent(deleteUrl);
+
+      // Prepare form data for the deletion POST request
+      const formData = new URLSearchParams({
+        _wpnonce: deleteNonce,
+        _wp_http_referer: referer,
+        'users[]': userId,
+        delete_option: 'reassign',
+        reassign_user: reassignToUserId,
+        action: 'dodelete',
+        submit: 'Confirm Deletion'
+      });
+
+      // POST the delete confirmation form
+      const res = await fetch(deleteUrl, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: formData.toString()
+      });
+
+      if (res.ok) {
+        console.log(`✅ Deleted ${email} (ID ${userId}) and reassigned content.`);
+      } else {
+        console.warn(`❌ Failed to delete ${email} (ID ${userId}). HTTP status: ${res.status}`);
+      }
+    } catch (err) {
+      console.error(`⚠️ Error deleting ${email}:`, err);
+    }
+  }
+})();
